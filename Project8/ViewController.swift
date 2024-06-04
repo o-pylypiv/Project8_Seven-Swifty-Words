@@ -8,11 +8,21 @@
 import UIKit
 
 class ViewController: UIViewController {
+
     var cluesLabel: UILabel!
     var answersLabel: UILabel!
     var currentAnswer: UITextField!
     var scoreLabel: UILabel!
     var letterButtons = [UIButton]()
+    var activatedButtons = [UIButton]()
+    var solutions = [String]()
+    
+    var score = 0 {
+        didSet {
+            scoreLabel.text = "Score: \(score)"
+        }
+    }
+    var level = 1
     
     override func loadView() {
         view = UIView()
@@ -29,6 +39,7 @@ class ViewController: UIViewController {
         cluesLabel.font = UIFont.systemFont(ofSize: 24)
         cluesLabel.text = "CLUES"
         cluesLabel.numberOfLines = 0
+        cluesLabel.setContentHuggingPriority(UILayoutPriority(1), for: .vertical)
         view.addSubview(cluesLabel)
         
         answersLabel = UILabel()
@@ -37,6 +48,7 @@ class ViewController: UIViewController {
         answersLabel.text = "ANSWERS"
         answersLabel.numberOfLines = 0
         answersLabel.textAlignment = .right
+        answersLabel.setContentHuggingPriority(UILayoutPriority(1), for: .vertical)
         view.addSubview(answersLabel)
         
         currentAnswer = UITextField()
@@ -50,12 +62,22 @@ class ViewController: UIViewController {
         let submit = UIButton(type: .system)
         submit.translatesAutoresizingMaskIntoConstraints = false
         submit.setTitle("SUBMIT", for: .normal)
+        submit.layer.borderWidth = 1
+        submit.layer.borderColor = UIColor.lightGray.cgColor
+        submit.addTarget(self, action: #selector(submitTapped), for: .touchUpInside)
         view.addSubview(submit)
         
         let clear = UIButton(type: .system)
         clear.translatesAutoresizingMaskIntoConstraints = false
         clear.setTitle("CLEAR", for: .normal)
+        clear.addTarget(self, action: #selector(clearTapped), for: .touchUpInside)
+        clear.layer.borderWidth = 1
+        clear.layer.borderColor = UIColor.lightGray.cgColor
         view.addSubview(clear)
+        
+        let buttonsView = UIView()
+        buttonsView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(buttonsView)
         
         NSLayoutConstraint.activate([
             scoreLabel.topAnchor.constraint(equalTo: view.layoutMarginsGuide.topAnchor),
@@ -76,18 +98,148 @@ class ViewController: UIViewController {
             
             submit.topAnchor.constraint(equalTo: currentAnswer.bottomAnchor),
             submit.centerXAnchor.constraint(equalTo: view.centerXAnchor, constant: -100),
+            submit.heightAnchor.constraint(equalToConstant: 44),
+            submit.widthAnchor.constraint(equalToConstant: 120),
             
+            clear.centerXAnchor.constraint(equalTo: view.centerXAnchor, constant: 100),
+            clear.centerYAnchor.constraint(equalTo: submit.centerYAnchor),
+            clear.heightAnchor.constraint(equalToConstant: 44),
+            clear.widthAnchor.constraint(equalToConstant: 120),
+            
+            buttonsView.widthAnchor.constraint(equalToConstant: 1000),
+            buttonsView.heightAnchor.constraint(equalToConstant: 400),
+            buttonsView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            buttonsView.topAnchor.constraint(equalTo: submit.bottomAnchor, constant: 20),
+            buttonsView.bottomAnchor.constraint(equalTo: view.layoutMarginsGuide.bottomAnchor, constant: -20)
         ])
         
-        cluesLabel.backgroundColor = .red
-        answersLabel.backgroundColor = .blue
+        let width = 200
+        let height = 100
+        
+        for row in 0..<4 {
+            for col in 0..<5 {
+                let letterButton = UIButton(type: .system)
+                letterButton.titleLabel?.font = UIFont.systemFont(ofSize: 36)
+                letterButton.setTitle("WWW", for: .normal)
+                letterButton.addTarget(self, action: #selector(letterTapped), for: .touchUpInside)
+                
+                let frame = CGRect(x: col * width, y: row * height, width: width, height: height)
+                letterButton.frame = frame
+                buttonsView.addSubview(letterButton)
+                letterButtons.append(letterButton)
+            }
+        }
     }
+
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        // Do any additional setup after loading the view.
+        loadLevel()
     }
 
+    @objc func letterTapped (_ sender: UIButton) {
+        guard let buttonTitle = sender.titleLabel?.text else {return}
+        
+        currentAnswer.text = currentAnswer.text?.appending(buttonTitle)
+        activatedButtons.append(sender)
+        
+        UIView.animate(withDuration: 3, delay: 0, options: [], animations: {
+            sender.alpha = 0
+        })
+        //sender.isHidden = true
+    }
 
+    @objc func submitTapped (_ sender: UIButton) {
+        guard let answerText = currentAnswer.text else {return}
+        
+        if let solutionPosition = solutions.firstIndex(of: answerText) {
+            activatedButtons.removeAll()
+            
+            var splitAnswers = answersLabel.text?.components(separatedBy: "\n")
+            splitAnswers?[solutionPosition] = answerText
+            answersLabel.text = splitAnswers?.joined(separator: "\n")
+            
+            currentAnswer.text = ""
+            score += 1
+            
+            //if score % 7 == 0
+            if let answersLabelText = answersLabel.text?.components(separatedBy: "\n") {
+                if solutions.contains(answersLabelText)  {
+                    let ac  = UIAlertController(title: "Well done!", message: "Are you ready for the next level?", preferredStyle: .alert)
+                    ac.addAction(UIAlertAction(title: "Let's go!", style: .default, handler: levelUp))
+                    present(ac, animated: true)
+                }
+            }
+        } else {
+            score -= 1
+            
+            let ac = UIAlertController(title: "Wrong guess!", message: "Your guess is incorrect.\nTry something else.", preferredStyle: .alert)
+            ac.addAction(UIAlertAction(title: "Ok", style: .cancel))
+            present(ac, animated: true)
+        }
+    }
+    
+    @objc func clearTapped (_ sender: UIButton) {
+        currentAnswer.text = ""
+        
+        for btn in activatedButtons {
+            btn.isHidden = false
+        }
+        activatedButtons.removeAll()
+    }
+    
+    func loadLevel() {
+        score = 0
+        var clueString = ""
+        var solutionString = ""
+        var letterBits = [String]()
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            [weak self, level] in
+            if let levelFileURL = Bundle.main.url(forResource: "level\(level)", withExtension: "txt") {
+                if let levelContents = try? String(contentsOf: levelFileURL) {
+                    var lines = levelContents.components(separatedBy: "\n")
+                    lines.shuffle()
+                    
+                    for (index, line) in lines.enumerated() {
+                        let parts = line.components(separatedBy: ": ")
+                        let answer = parts[0]
+                        let clue = parts[1]
+                        
+                        clueString += "\(index + 1).\(clue)\n"
+                        
+                        let solutionWord = answer.replacingOccurrences(of: "|", with: "")
+                        solutionString += "\(solutionWord.count) letters\n"
+                        self?.solutions.append(solutionWord)
+                        
+                        let bits = answer.components(separatedBy: "|")
+                        letterBits += bits
+                    }
+                }
+            }
+        }
+        
+        DispatchQueue.main.async {
+            [weak self] in
+            // Now configure the buttons and labels
+            self?.cluesLabel.text = clueString.trimmingCharacters(in: .whitespacesAndNewlines)
+            self?.answersLabel.text = solutionString.trimmingCharacters(in: .whitespacesAndNewlines)
+            letterBits.shuffle()
+            if letterBits.count == self?.letterButtons.count {
+                for i in 0..<letterBits.count {
+                    self?.letterButtons[i].setTitle(letterBits[i], for: .normal)
+                }
+            }
+        }
+    }
+    
+    func levelUp(action: UIAlertAction) {
+        level += 1
+        solutions.removeAll(keepingCapacity: true)
+        loadLevel()
+        
+        for btn in letterButtons {
+            btn.isHidden = false
+        }
+    }
 }
-
